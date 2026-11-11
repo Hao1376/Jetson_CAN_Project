@@ -140,7 +140,7 @@ static void Task_ArmFromCmd(const Camera_CtrlCmd_t *cmd)
     {
         s_shots          = shots;
         g_cam_task_shots = shots;
-        printf("[CAM_TASK] 地点 %u(%s) 重复下发，仅更新张数为 %u，继续等待进入范围\n",
+        printf("[CAM_TASK] 地点 %u（%s）重复下发，仅更新张数为 %u，继续等待进入范围\n",
                (unsigned)s_site, range->name, (unsigned)shots);
         return;
     }
@@ -155,7 +155,7 @@ static void Task_ArmFromCmd(const Camera_CtrlCmd_t *cmd)
     g_cam_task_site  = s_site;
     g_cam_task_shots = s_shots;
 
-    printf("[CAM_TASK] 装填任务: 地点 %u(%s) 范围 lat[%.4f,%.4f] lon[%.4f,%.4f]，"
+    printf("[CAM_TASK] 装填任务：地点 %u（%s）范围 纬度[%.4f,%.4f] 经度[%.4f,%.4f]，"
            "张数 %u，等待进入范围\n",
            (unsigned)s_site, range->name,
            (double)range->lat_min, (double)range->lat_max,
@@ -180,7 +180,7 @@ static void Task_ApplyCmd(const Camera_CtrlCmd_t *cmd)
     }
     else
     {
-        printf("[CAM_TASK] 本帧无参数（type=0x%02X），跳过参数下发\n",
+        printf("[CAM_TASK] 本帧无参数（类型=0x%02X），跳过参数下发\n",
                (unsigned)cmd->param_type);
     }
 
@@ -190,7 +190,7 @@ static void Task_ApplyCmd(const Camera_CtrlCmd_t *cmd)
     }
     else
     {
-        printf("[CAM_TASK] 本帧无地点（site=0），只执行参数\n");
+        printf("[CAM_TASK] 本帧无地点（地点编号=0），只执行参数\n");
     }
 }
 
@@ -211,12 +211,12 @@ void Camera_Task_Init(void)
     /* 拍照通道（/tmp/cam_ctrl.sock）复位 */
     Camera_Shot_Init();
 
-    printf("[CAM_TASK] init: 经纬度围栏任务, 地点表 %u 条, 控制 socket=%s, 照片目录=%s\n",
+    printf("[CAM_TASK] 初始化：经纬度围栏任务，地点表 %u 条，控制套接字=%s，照片目录=%s\n",
            (unsigned)SITE_RANGE_NUM, CAM_SHOT_SOCK_PATH, CAM_SHOT_FRAME_DIR);
 
     for (uint8_t i = 0u; i < (uint8_t)SITE_RANGE_NUM; i++)
     {
-        printf("[CAM_TASK]   地点 %u(%s): lat[%.4f,%.4f] lon[%.4f,%.4f]\n",
+        printf("[CAM_TASK]   地点 %u（%s）：纬度[%.4f,%.4f] 经度[%.4f,%.4f]\n",
                (unsigned)s_site_ranges[i].site, s_site_ranges[i].name,
                (double)s_site_ranges[i].lat_min, (double)s_site_ranges[i].lat_max,
                (double)s_site_ranges[i].lon_min, (double)s_site_ranges[i].lon_max);
@@ -240,7 +240,7 @@ void Camera_Task_OnCtrlCmd(const Camera_CtrlCmd_t *cmd)
         /* 连拍中：整帧缓存，避免中途改参数/打断任务 */
         s_pending_cmd = *cmd;
         s_has_pending = 1u;
-        printf("[CAM_TASK] 连拍中(%u/%u)，本帧已缓存，拍完再执行\n",
+        printf("[CAM_TASK] 连拍中（%u/%u），本帧已缓存，拍完再执行\n",
                (unsigned)s_shot_index, (unsigned)s_shots);
         return;
     }
@@ -269,7 +269,7 @@ static void Task_FinishShooting(void)
     uint8_t site  = s_site;
     uint8_t shots = s_shots;
 
-    printf("[CAM_TASK] 地点 %u 连拍完成(%u 张)\n", (unsigned)site, (unsigned)shots);
+    printf("[CAM_TASK] 地点 %u 连拍完成（%u 张）\n", (unsigned)site, (unsigned)shots);
     Task_Reset();
     Task_AfterShooting();
 }
@@ -309,7 +309,7 @@ void Camera_Task_Poll(void)
                     ((uint32_t)(now_ms - s_last_pos_log_ms) >= CAM_TASK_POS_LOG_MS))
                 {
                     s_last_pos_log_ms = now_ms;
-                    printf("[CAM_TASK] 等待地点 %u(%s): 当前 lat=%.6f lon=%.6f\n",
+                    printf("[CAM_TASK] 等待地点 %u（%s）：当前 纬度=%.6f 经度=%.6f\n",
                            (unsigned)s_site, range->name,
                            (double)lat, (double)lon);
                 }
@@ -317,7 +317,7 @@ void Camera_Task_Poll(void)
             }
 
             /* 经纬度进入范围：开始连拍 */
-            printf("[CAM_TASK] 地点 %u(%s) 进入范围: lat=%.6f lon=%.6f，开始连拍 %u 张\n",
+            printf("[CAM_TASK] 地点 %u（%s）进入范围：纬度=%.6f 经度=%.6f，开始连拍 %u 张\n",
                    (unsigned)s_site, range->name,
                    (double)lat, (double)lon, (unsigned)s_shots);
 

@@ -86,7 +86,7 @@ int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
     {
-        perror("[CAM_SHOT] socket");
+        perror("[CAM_SHOT] 创建 socket 失败");
         return -1;
     }
 
@@ -97,7 +97,7 @@ int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
-        fprintf(stderr, "[CAM_SHOT] connect(%s) 失败: %s（Camera_tftp.py 未启动？）\n",
+        fprintf(stderr, "[CAM_SHOT] 连接 %s 失败：%s（Camera_tftp.py 未启动？）\n",
                 CAM_SHOT_SOCK_PATH, strerror(errno));
         close(fd);
         return -1;
@@ -109,7 +109,7 @@ int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
     ssize_t n = send(fd, cmd, cmd_len, MSG_NOSIGNAL);
     if (n != (ssize_t)cmd_len)
     {
-        fprintf(stderr, "[CAM_SHOT] send 失败: %s\n", strerror(errno));
+        fprintf(stderr, "[CAM_SHOT] 发送拍照命令失败：%s\n", strerror(errno));
         close(fd);
         return -1;
     }
@@ -126,7 +126,7 @@ int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
     s_total    = total;
     s_start_ms = Shot_MonoMs();
 
-    printf("[CAM_SHOT] 已请求拍照: 地点 %u 第 %u/%u 张，等待回包...\n",
+    printf("[CAM_SHOT] 已请求拍照：地点 %u 第 %u/%u 张，等待回包...\n",
            (unsigned)s_site, (unsigned)(s_index + 1u), (unsigned)s_total);
     return 0;
 }
@@ -150,7 +150,7 @@ int Camera_Shot_Poll(void)
     {
         if (errno == EINTR)
             return 0;
-        perror("[CAM_SHOT] poll");
+        perror("[CAM_SHOT] poll 失败");
         Shot_Close();
         return -1;
     }
@@ -160,7 +160,7 @@ int Camera_Shot_Poll(void)
         /* 还没数据：检查超时 */
         if ((uint32_t)(Shot_MonoMs() - s_start_ms) >= CAM_SHOT_REPLY_TIMEOUT_MS)
         {
-            fprintf(stderr, "[CAM_SHOT] 等回包超时(%u ms): 地点 %u 第 %u/%u 张\n",
+            fprintf(stderr, "[CAM_SHOT] 等待回包超时（%u ms）：地点 %u 第 %u/%u 张\n",
                     (unsigned)CAM_SHOT_REPLY_TIMEOUT_MS,
                     (unsigned)s_site, (unsigned)(s_index + 1u), (unsigned)s_total);
             Shot_Close();
@@ -172,7 +172,7 @@ int Camera_Shot_Poll(void)
     /* 对端关闭/出错（没有 POLLIN），直接判失败 */
     if ((pfd.revents & POLLIN) == 0)
     {
-        fprintf(stderr, "[CAM_SHOT] socket 异常(revents=0x%X)，对端可能已退出\n",
+        fprintf(stderr, "[CAM_SHOT] socket 异常（revents=0x%X），对端可能已退出\n",
                 (unsigned)pfd.revents);
         Shot_Close();
         return -1;
@@ -183,7 +183,7 @@ int Camera_Shot_Poll(void)
     ssize_t n = recv(s_fd, buf, sizeof(buf) - 1u, 0);
     if (n <= 0)
     {
-        fprintf(stderr, "[CAM_SHOT] recv 失败/对端关闭: %s\n", strerror(errno));
+        fprintf(stderr, "[CAM_SHOT] 接收回包失败/对端关闭：%s\n", strerror(errno));
         Shot_Close();
         return -1;
     }
@@ -203,24 +203,24 @@ int Camera_Shot_Poll(void)
         char path[512];
         snprintf(path, sizeof(path), "%s/%s", CAM_SHOT_FRAME_DIR, buf);
         if (remove(path) == 0)
-            printf("[CAM_SHOT] 地点 %u 第 %u/%u 张完成: %s 已上传并删除本地文件\n",
+            printf("[CAM_SHOT] 地点 %u 第 %u/%u 张完成：%s 已上传并删除本地文件\n",
                    (unsigned)s_site, (unsigned)(s_index + 1u),
                    (unsigned)s_total, buf);
         else
-            fprintf(stderr, "[CAM_SHOT] 删除本地文件失败: %s (%s)\n",
+            fprintf(stderr, "[CAM_SHOT] 删除本地文件失败：%s（%s）\n",
                     path, strerror(errno));
         ret = 1;
     }
     else if (strcmp(buf, "ERROR") == 0)
     {
-        fprintf(stderr, "[CAM_SHOT] Python 回报 ERROR: 地点 %u 第 %u/%u 张"
+        fprintf(stderr, "[CAM_SHOT] Python 回报 ERROR：地点 %u 第 %u/%u 张"
                         "（拍照失败或 TFTP 上传失败，本地文件已保留）\n",
                 (unsigned)s_site, (unsigned)(s_index + 1u), (unsigned)s_total);
         ret = -1;
     }
     else
     {
-        fprintf(stderr, "[CAM_SHOT] 未知回包: \"%s\"\n", buf);
+        fprintf(stderr, "[CAM_SHOT] 未知回包：\"%s\"\n", buf);
         ret = -1;
     }
 

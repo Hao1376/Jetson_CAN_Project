@@ -22,24 +22,24 @@ int Can_Init(const LinuxCanConfig *cfg)
 
     if (can_set_bitrate(cfg->ifname, cfg->bitrate) < 0)
     {
-        perror("can_set_bitrate");
+        perror("[CAN] 设置波特率失败");
         return -1;
     }
 
     /* bus-off 后 100 ms 自动重启；驱动不支持时仅告警，不阻止启动 */
     if (can_set_restart_ms(cfg->ifname, 100) < 0)
-        perror("can_set_restart_ms");
+        perror("[CAN] 设置重启时间失败");
 
     if (can_do_start(cfg->ifname) < 0)
     {
-        perror("can_do_start");
+        perror("[CAN] 启动接口失败");
         return -1;
     }
 
     fd = socket(AF_CAN, SOCK_RAW, CAN_RAW);
     if (fd < 0)
     {
-        perror("socket(AF_CAN)");
+        perror("[CAN] 创建 SocketCAN 套接字失败");
         return -1;
     }
 
@@ -56,7 +56,7 @@ int Can_Init(const LinuxCanConfig *cfg)
 
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0)
     {
-        perror("ioctl(SIOCGIFINDEX)");
+        perror("[CAN] 获取接口索引失败");
         close(fd);
         return -1;
     }
@@ -67,7 +67,7 @@ int Can_Init(const LinuxCanConfig *cfg)
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
-        perror("bind(AF_CAN)");
+        perror("[CAN] 绑定接口失败");
         close(fd);
         return -1;
     }
@@ -84,7 +84,7 @@ int Can_Read_Register(int fd)
         can_epfd = epoll_create1(EPOLL_CLOEXEC);
         if (can_epfd < 0)
         {
-            perror("epoll_create1");
+            perror("[CAN] 创建 epoll 失败");
             return -1;
         }
     }
@@ -95,7 +95,7 @@ int Can_Read_Register(int fd)
 
     if (epoll_ctl(can_epfd, EPOLL_CTL_ADD, fd, &ev) < 0)
     {
-        perror("epoll_ctl");
+        perror("[CAN] 注册 epoll 失败");
         return -1;
     }
 
@@ -114,7 +114,7 @@ int Can_Read_One(int fd, struct can_frame *frame)
     {
         if (errno == EINTR)
             return 0;
-        perror("read(CAN)");
+        perror("[CAN] 读取帧失败");
         return -1;
     }
 

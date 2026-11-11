@@ -38,7 +38,7 @@ static void *Can_Rx_Thread(void *arg)
         {
             if (errno == EINTR)
                 continue;
-            perror("epoll_wait");
+            perror("[主程序] epoll_wait 失败");
             break;
         }
 
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
     s_can_fds.fd1 = Can_Init(&g_can_cfg[1]);
     if ((s_can_fds.fd0 < 0) || (s_can_fds.fd1 < 0))
     {
-        fprintf(stderr, "Can_Init failed: can0=%d can1=%d\n",
+        fprintf(stderr, "[CAN] 初始化失败：can0=%d，can1=%d\n",
                 s_can_fds.fd0, s_can_fds.fd1);
         return -1;
     }
@@ -115,21 +115,22 @@ int main(int argc, char *argv[])
     if ((Can_Read_Register(s_can_fds.fd0) < 0) ||
         (Can_Read_Register(s_can_fds.fd1) < 0))
     {
-        fprintf(stderr, "Can_Read_Register failed\n");
+        fprintf(stderr, "[CAN] 注册 epoll 失败\n");
         return -1;
     }
 
-    printf("init OK: can0 fd=%d, can1 fd=%d\n", s_can_fds.fd0, s_can_fds.fd1);
+    printf("[主程序] 初始化完成：can0 fd=%d，can1 fd=%d\n",
+           s_can_fds.fd0, s_can_fds.fd1);
 
     if (pthread_create(&rx_tid, NULL, Can_Rx_Thread, &s_can_fds) != 0)
     {
-        perror("pthread_create can_rx");
+        perror("[主程序] 创建 CAN 接收线程失败");
         return -1;
     }
 
     if (pthread_create(&cam_tid, NULL, Camera_Ctrl_Thread, NULL) != 0)
     {
-        perror("pthread_create camera");
+        perror("[主程序] 创建相机业务线程失败");
         return -1;
     }
 

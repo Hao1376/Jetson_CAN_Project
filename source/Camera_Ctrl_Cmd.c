@@ -18,13 +18,13 @@
 
 /* ---------------- 参数表 ---------------- */
 const CameraParamInfo_t g_cam_param_table[CAM_PARAM_NUM] = {
-    { CAM_PARAM_BRIGHTNESS,   0u, 200u, "brightness" },
-    { CAM_PARAM_CONTRAST,     0u, 200u, "contrast"   },
-    { CAM_PARAM_SATURATION,   0u, 200u, "saturation" },
-    { CAM_PARAM_HUE,          0u, 360u, "hue"        },
-    { CAM_PARAM_GAMMA,        0u, 100u, "gamma"      },
-    { CAM_PARAM_GAIN,         0u,  40u, "gain"       },
-    { CAM_PARAM_SHARPNESS,    0u,  32u, "sharpness"  },
+    { CAM_PARAM_BRIGHTNESS,   0u, 200u, "亮度"   },
+    { CAM_PARAM_CONTRAST,     0u, 200u, "对比度" },
+    { CAM_PARAM_SATURATION,   0u, 200u, "饱和度" },
+    { CAM_PARAM_HUE,          0u, 360u, "色调"   },
+    { CAM_PARAM_GAMMA,        0u, 100u, "伽马"   },
+    { CAM_PARAM_GAIN,         0u,  40u, "增益"   },
+    { CAM_PARAM_SHARPNESS,    0u,  32u, "锐度"   },
 };
 
 static const uint32_t s_v4l2_cid[CAM_PARAM_NUM] = {
@@ -75,13 +75,13 @@ Portocol_Status Camera_CtrlCmd_ParseCmdFrame(const uint8_t *data, uint16_t len,
 
     if (len < CAM_CMD_LEN)
     {
-        fprintf(stderr, "[CAM_CMD] drop: len=%u\n", (unsigned)len);
+        fprintf(stderr, "[CAM_CMD] 命令帧长度不足，丢弃：len=%u\n", (unsigned)len);
         return Portocol_ERROR;
     }
 
     if ((data[0] != CAM_CMD_HEAD0) || (data[1] != CAM_CMD_HEAD1))
     {
-        fprintf(stderr, "[CAM_CMD] drop: bad head %02X %02X\n",
+        fprintf(stderr, "[CAM_CMD] 命令帧头错误，丢弃：%02X %02X\n",
                 data[0], data[1]);
         return Portocol_ERROR;
     }
@@ -111,14 +111,14 @@ Portocol_Status Camera_CtrlCmd_ParseCmdFrame(const uint8_t *data, uint16_t len,
         }
         else
         {
-            fprintf(stderr, "[CAM_CMD] param out of range: %s=%u (%u~%u)\n",
+            fprintf(stderr, "[CAM_CMD] 参数越界：%s=%u（%u~%u）\n",
                     info->name, (unsigned)out->param_value,
                     (unsigned)info->min, (unsigned)info->max);
         }
     }
     else if (out->param_type != (uint8_t)CAM_PARAM_NONE)
     {
-        fprintf(stderr, "[CAM_CMD] unknown param type: %u\n",
+        fprintf(stderr, "[CAM_CMD] 未知参数类型：%u\n",
                 (unsigned)out->param_type);
     }
 
@@ -250,13 +250,13 @@ void Camera_CtrlCmd_OnCanFrame(uint32_t can_id, uint8_t frame_type,
 
             Camera_CtrlCmd_Store(&cmd);
 
-            printf("[CAM_CMD] site=%u shots=%u param=%s value=%u %s\n",
+            printf("[CAM_CMD] 地点=%u 张数=%u 参数=%s 值=%u %s\n",
                    (unsigned)cmd.site, (unsigned)cmd.shot_count,
                    (cmd.param_present != 0u)
-                       ? g_cam_param_table[cmd.param_type].name : "none",
+                       ? g_cam_param_table[cmd.param_type].name : "无",
                    (unsigned)cmd.param_value,
                    (cmd.param_present == 0u)
-                       ? "NONE" : (cmd.param_valid ? "OK" : "INVALID"));
+                       ? "无参数" : (cmd.param_valid ? "有效" : "无效"));
             break;
         }
 
@@ -316,7 +316,7 @@ int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
 
     if ((cmd->param_valid == 0u) || (cmd->param_type >= (uint8_t)CAM_PARAM_NUM))
     {
-        fprintf(stderr, "[CAM_PARAM] invalid param: type=%u value=%u\n",
+        fprintf(stderr, "[CAM_PARAM] 参数无效：类型=%u，值=%u\n",
                 (unsigned)cmd->param_type, (unsigned)cmd->param_value);
         return -1;
     }
@@ -328,7 +328,7 @@ int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
     fd = open(dev, O_RDWR);
     if (fd < 0)
     {
-        perror("[CAM_PARAM] open");
+        perror("[CAM_PARAM] 打开相机设备失败");
         return -1;
     }
 
@@ -337,7 +337,7 @@ int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
 
     if (ioctl(fd, VIDIOC_QUERYCTRL, &qctrl) < 0)
     {
-        fprintf(stderr, "[CAM_PARAM] %s: QUERYCTRL failed for %s\n",
+        fprintf(stderr, "[CAM_PARAM] %s：查询控件 %s 失败\n",
                 dev, g_cam_param_table[cmd->param_type].name);
         close(fd);
         return -1;
@@ -345,7 +345,7 @@ int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
 
     if ((qctrl.flags & V4L2_CTRL_FLAG_DISABLED) != 0u)
     {
-        fprintf(stderr, "[CAM_PARAM] %s: %s disabled\n",
+        fprintf(stderr, "[CAM_PARAM] %s：控件 %s 已禁用\n",
                 dev, g_cam_param_table[cmd->param_type].name);
         close(fd);
         return -1;
@@ -376,12 +376,12 @@ int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
 
     if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) < 0)
     {
-        perror("[CAM_PARAM] VIDIOC_S_CTRL");
+        perror("[CAM_PARAM] 设置控件失败");
         close(fd);
         return -1;
     }
 
-    printf("[CAM_PARAM] %s: %s %u -> %d\n",
+    printf("[CAM_PARAM] %s：%s %u -> %d\n",
            dev, info->name, (unsigned)cmd->param_value, ctrl.value);
 
     close(fd);
