@@ -1,0 +1,19 @@
+# CMake / Make 构建产物
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+main
+*.o
+*.obj
+*.a
+*.so
+*.elf
+*.bin
+
+# 编辑器 / 系统文件
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
