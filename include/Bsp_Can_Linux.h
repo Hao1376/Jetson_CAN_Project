@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <sys/types.h>         
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <libsocketcan.h>
@@ -14,24 +14,24 @@
 #include <sys/epoll.h>
 #include <errno.h>
 
-#define CAN_FRAME_DLC_MAX 8
-extern int can_epfd; //
-typedef struct {
+/* 所有 CAN 口共用同一个 epoll 实例 */
+extern int can_epfd;
+
+typedef struct
+{
     const char *ifname;
     uint32_t    bitrate;
 } LinuxCanConfig;
 
-typedef struct{
-    unsigned char data[8];
-    unsigned char DLC;
-    unsigned int can_id;
-}BSP_Can_Msg;
-
 extern LinuxCanConfig g_can_cfg[2];
 
+/* 配置并启动一个 SocketCAN 接口，返回绑定的 socket fd；失败返回 -1 */
+int Can_Init(const LinuxCanConfig *cfg);
 
-extern int Can_Init(const LinuxCanConfig *cfg);
-extern int Can_Read_Register(int fd);
-extern int Can_Write(int fd,BSP_Can_Msg* Msg);
-extern int Can_Read_One(int fd, struct can_frame *frame);
+/* 把 fd 注册到共用 epoll */
+int Can_Read_Register(int fd);
+
+/* 非阻塞读一帧：1 成功，0 无数据/被打断，-1 出错 */
+int Can_Read_One(int fd, struct can_frame *frame);
+
 #endif

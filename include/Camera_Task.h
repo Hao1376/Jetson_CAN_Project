@@ -19,8 +19,8 @@
  *       c. 地点 != 0 且 参数类型 0x07（空）
  *            -> 不设置参数，只装填地点任务，等待进入经纬度范围
  *
- *  3. 装填任务后，每个轮询周期读取 g_orbit_lat_deg / g_orbit_lon_deg：
- *       经纬度有效且落入该地点范围 -> 进入 SHOOTING，开始连拍
+ *  3. 装填任务后，每个轮询周期通过 Camera_CtrlCmd_GetOrbit() 读取经纬度：
+ *       数据新鲜且落入该地点范围 -> 进入 SHOOTING，开始连拍
  *
  *  4. 拍完 -> 回 IDLE；连拍期间收到的命令会缓存，本次拍完再执行
  *
@@ -35,7 +35,7 @@
  *  - “按快门”走 Camera_Task_TriggerShot() -> Camera_Shot_Request()，
  *    非阻塞地给 /tmp/cam_ctrl.sock 发 "capture\n"，结果由
  *    Camera_Shot_Poll() 在下个调度周期收（拍照 + TFTP 上传在 Python 端完成）。
- *  - 参数下发动作 Camera_CtrlCmd_ApplyParam() 目前仍为空实现。
+ *  - 参数下发通过 Camera_CtrlCmd_ApplyParam() 走 V4L2。
  *  - 所有函数都在同一个业务线程里调用，无需再加锁。
  */
 

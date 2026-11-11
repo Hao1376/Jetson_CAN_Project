@@ -12,11 +12,10 @@
 #include "Camera_Task.h"
 #include "Camera_Shot.h"
 #include <stdio.h>
-#include <string.h>
 #include <time.h>
 
-/* 等待进入范围时，当前位置日志的最小间隔(ms)，避免 20ms 刷屏 */
-#define CAM_TASK_POS_LOG_MS   5000u
+/* 等待进入范围时，当前位置日志的最小间隔(ms) */
+#define CAM_TASK_POS_LOG_MS   10000u
 
 /* ======================================================================
  *  地点经纬度范围表
@@ -81,15 +80,10 @@ static const SiteRange_t *Task_FindSite(uint8_t site)
     return NULL;
 }
 
-/* 取当前星上经纬度：两路都有效才返回 1 */
+/* 取当前有效经纬度：由 Camera_Ctrl_Cmd 统一做新鲜度/配对检查 */
 static uint8_t Task_GetPosition(float *lat, float *lon)
 {
-    if ((g_orbit_lat_valid == 0u) || (g_orbit_lon_valid == 0u))
-        return 0u;
-
-    *lat = g_orbit_lat_deg;
-    *lon = g_orbit_lon_deg;
-    return 1u;
+    return Camera_CtrlCmd_GetOrbit(lat, lon);
 }
 
 /* 判断经纬度是否落在地点范围内 */
