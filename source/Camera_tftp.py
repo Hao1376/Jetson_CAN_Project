@@ -11,12 +11,17 @@ FRAME_FILE = "/home/Jetson/Desktop/project/Cam/Frame_File"
 CTRL_SOCKET = "/tmp/cam_ctrl.sock"
 VIDEO_DEV = os.environ.get("CAM_VIDEO_DEV", "/dev/video0")
 
-TFTP_SERVER = "192.168.0.100"
-LINUX_ADDRESS = "192.168.0.200"
-LINUX_MASK = "255.255.255.0"
+# 无线网卡和热点；WIFI_SSID 为空时假设已经手动连上热点
+WIFI_IFACE = os.environ.get("WIFI_IFACE", "wlP1p1s0")
+WIFI_SSID = os.environ.get("WIFI_SSID", "")
+WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD", "")
+
+# 地面站 IP：TFTP 和 UDP 日志默认都用它，也可以分别覆盖
+GROUND_IP = os.environ.get("GROUND_IP", "192.168.0.100")
+TFTP_SERVER = os.environ.get("TFTP_SERVER", GROUND_IP)
 TFTP_TIMEOUT = 10  # 秒
 
-LOG_UDP_HOST = os.environ.get("LOG_UDP_HOST", "192.168.0.100")
+LOG_UDP_HOST = os.environ.get("LOG_UDP_HOST", GROUND_IP)
 try:
     LOG_UDP_PORT = int(os.environ.get("LOG_UDP_PORT", "9999"))
 except ValueError:
@@ -251,20 +256,59 @@ def Camera_Index():
     return 0
 
 
+def Connect_WiFi():
+    """连接热点；WIFI_SSID 为空时假设已手动连接"""
+    if not WIFI_SSID:
+        print(f"未设置 WIFI_SSID，假设 {WIFI_IFACE} 已连接热点")
+        return
+
+    print(f"正在连接 Wi-Fi：{WIFI_SSID}（{WIFI_IFACE}）")
+    cmd = ["nmcli", "device", "wifi", "connect", WIFI_SSID, "ifname", WIFI_IFACE]
+    if WIFI_PASSWORD:
+        cmd += ["password", WIFI_PASSWORD]
+
+    try:
+        result = subprocess.run(cmd, text=True, capture_output=True, timeout=30)
+        if result.returncode == 0:
+            print("Wi-Fi 连接成功")
+        else:
+            print(f"Wi-Fi 连接失败：{result.stderr.strip()}")
+    except FileNotFoundError:
+        print("未找到 nmcli，请手动连接热点")
+    except subprocess.TimeoutExpired:
+        print("Wi-Fi 连接超时")
+
+
+def Print_Network_Info():
+    """打印无线网卡 IP，方便设置 GROUND_IP"""
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "addr", "show", WIFI_IFACE],
+            text=True, capture_output=True, timeout=5,
+        )
+        info = result.stdout.strip()
+        if info:
+            print(f"无线网卡 {WIFI_IFACE} 状态：\n{info}")
+        else:
+            print(f"无线网卡 {WIFI_IFACE} 暂无 IPv4 地址")
+    except Exception as e:
+        print(f"读取无线网卡信息失败：{e}")
+
+
 def Init():
-    """初始化摄像头和网络"""
+    """初始化网络和摄像头"""
     global cap
+
+    Connect_WiFi()
+    Print_Network_Info()
 
     cap = cv2.VideoCapture(Camera_Index(), cv2.CAP_V4L2)
     if not cap.isOpened():
         print(f"无法打开摄像头 {VIDEO_DEV}，请检查连接")
         sys.exit(1)
 
-    print("正在配置网络...")
-    subprocess.run(shlex.split("sudo ip link set end0 down"), check=True)
-    subprocess.run(shlex.split(f"sudo ip addr replace {LINUX_ADDRESS}/24 dev end0"), check=True)
-    subprocess.run(shlex.split("sudo ip link set end0 up"), check=True)
-    print(f"网卡 end0 已配置为 IP:{LINUX_ADDRESS} 掩码:{LINUX_MASK}")
+    print(f"地面站 IP：{GROUND_IP}，TFTP 服务器：{TFTP_SERVER}，"
+          f"UDP 日志：{LOG_UDP_HOST}:{LOG_UDP_PORT}")
 
 
 if __name__ == "__main__":

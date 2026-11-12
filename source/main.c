@@ -105,7 +105,8 @@ int main(int argc, char *argv[])
 
     /*
      * 日志 tee 到 UDP：
-     *   LOG_UDP_HOST 未设置 -> 默认 192.168.0.100
+     *   LOG_UDP_HOST 未设置 -> 默认 192.168.0.100（有线默认）
+     *   Wi-Fi 热点下请设置成地面站实际 IP，例如 192.168.43.100
      *   LOG_UDP_HOST=""    -> 禁用 UDP
      *   LOG_UDP_PORT 未设置 -> 9999
      */
