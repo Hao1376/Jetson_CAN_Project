@@ -5,6 +5,7 @@ import time
 import subprocess
 import shlex
 import socket
+from datetime import datetime
 
 FRAME_FILE = "/home/Jetson/Desktop/project/Cam/Frame_File"
 CTRL_SOCKET = "/tmp/cam_ctrl.sock"
@@ -14,6 +15,12 @@ TFTP_SERVER = "192.168.0.100"
 LINUX_ADDRESS = "192.168.0.200"
 LINUX_MASK = "255.255.255.0"
 TFTP_TIMEOUT = 10  # 秒
+
+LOG_UDP_HOST = os.environ.get("LOG_UDP_HOST", "192.168.0.100")
+try:
+    LOG_UDP_PORT = int(os.environ.get("LOG_UDP_PORT", "9999"))
+except ValueError:
+    LOG_UDP_PORT = 9999
 
 # C 端协议键名 -> v4l2-ctl 控件名（USB UVC）
 V4L2_CTRL = {
@@ -27,6 +34,55 @@ V4L2_CTRL = {
 }
 
 cap = None
+
+
+class UdpTee:
+    """把 print 输出同时发到 UDP，一行一个数据报"""
+
+    def __init__(self, stream, tag):
+        self.stream = stream
+        self.tag = tag
+        self.buf = ""
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        except OSError:
+            self.sock = None
+
+    def write(self, data):
+        self.stream.write(data)
+        self.buf += data
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            if line:
+                self.Send(line)
+
+    def Send(self, line):
+        if self.sock is None:
+            return
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        text = f"[{self.tag} {ts}] {line}\n"
+        try:
+            self.sock.sendto(text.encode("utf-8"), (LOG_UDP_HOST, LOG_UDP_PORT))
+        except OSError:
+            pass
+
+    def flush(self):
+        self.stream.flush()
+
+    def fileno(self):
+        return self.stream.fileno()
+
+    @property
+    def encoding(self):
+        return getattr(self.stream, "encoding", "utf-8")
+
+
+def Install_Udp_Log():
+    """把 stdout/stderr 同时转发到 UDP；LOG_UDP_HOST 为空时禁用"""
+    if not LOG_UDP_HOST:
+        return
+    sys.stdout = UdpTee(sys.stdout, "PY")
+    sys.stderr = UdpTee(sys.stderr, "PY")
 
 
 def Set_Temp_File():
@@ -212,6 +268,7 @@ def Init():
 
 
 if __name__ == "__main__":
+    Install_Udp_Log()
     Init()
     Set_Temp_File()
     Server_Loop()

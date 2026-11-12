@@ -19,6 +19,7 @@ add_executable(main
     source/Camera_Ctrl_Cmd.c
     source/Camera_Task.c
     source/Camera_Shot.c
+    source/Log_Udp.c
 )
 
 target_link_libraries(main Threads::Threads socketcan)

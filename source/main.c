@@ -2,10 +2,12 @@
 #define _GNU_SOURCE
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
 #include <Bsp_Can_Linux.h>
+#include <Log_Udp.h>
 #include <Star_Can_Protocol.h>
 #include <Camera_Ctrl_Cmd.h>
 #include <Camera_Task.h>
@@ -95,9 +97,25 @@ int main(int argc, char *argv[])
 {
     pthread_t rx_tid;
     pthread_t cam_tid;
+    const char *log_host;
+    const char *log_port;
 
     (void)argc;
     (void)argv;
+
+    /*
+     * 日志 tee 到 UDP：
+     *   LOG_UDP_HOST 未设置 -> 默认 192.168.0.100
+     *   LOG_UDP_HOST=""    -> 禁用 UDP
+     *   LOG_UDP_PORT 未设置 -> 9999
+     */
+    log_host = getenv("LOG_UDP_HOST");
+    if (log_host == NULL)
+        log_host = "192.168.0.100";
+
+    log_port = getenv("LOG_UDP_PORT");
+    (void)Log_Udp_Init(log_host,
+                       (uint16_t)((log_port != NULL) ? atoi(log_port) : 9999));
 
     /* 先初始化业务层，再启动线程，避免早到的命令被跳过 */
     Camera_Task_Init();
