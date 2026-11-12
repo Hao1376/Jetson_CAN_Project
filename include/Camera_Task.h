@@ -33,9 +33,9 @@
  * 说明
  * ---------------------------------------------------------------------------
  *  - “按快门”走 Camera_Task_TriggerShot() -> Camera_Shot_Request()，
- *    非阻塞地给 /tmp/cam_ctrl.sock 发 "capture\n"，结果由
+ *    非阻塞地给 /tmp/cam_ctrl.sock 发 "CAPTURE ...\n"，结果由
  *    Camera_Shot_Poll() 在下个调度周期收（拍照 + TFTP 上传在 Python 端完成）。
- *  - 参数下发通过 Camera_CtrlCmd_ApplyParam() 走 V4L2。
+ *  - 参数下发通过 Camera_Shot 交给 Python 相机服务执行。
  *  - 所有函数都在同一个业务线程里调用，无需再加锁。
  */
 

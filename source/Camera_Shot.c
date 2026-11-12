@@ -1,17 +1,13 @@
 /**
  * @file    Camera_Shot.c
- * @brief   拍照请求/回执通道：Unix domain socket 异步状态机
- * @author  张皓
- * @email   haozhang1018@gmail.com
- * @date    2026-11-10
+ * @brief   与 Python 相机服务通信：参数下发 + 异步拍照回执
  *
- * 流程：
- *   Request(): socket -> connect(/tmp/cam_ctrl.sock) -> send("capture\n")
- *              -> 转非阻塞 -> WAIT_REPLY
- *   Poll():    poll(0ms) 查可读
- *              - 收到 "img_xxx.jpg" -> Python 已完成 TFTP 上传 -> 删本地文件 -> 成功
- *              - 收到 "ERROR"       -> 失败（拍照失败或 TFTP 失败）
- *              - 超时 20s           -> 失败
+ * 协议：
+ *   PARAM <key> <value>\n      -> OK / ERROR ...
+ *   CAPTURE <site> <index> <total>\n -> OK <filename> / ERROR ...
+ *
+ * 拍照是异步的：Request() 只发命令，Poll() 每 20ms 查一次回包，
+ * 避免 Python 拍照 + TFTP 上传期间卡住经纬度围栏和调度线程。
  */
 
 /* 需要 POSIX 接口(clock_gettime/poll/fcntl)与 MSG_NOSIGNAL，须放在所有头文件之前 */
@@ -19,7 +15,6 @@
 
 #include "Camera_Shot.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -28,6 +23,8 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+
+#define CAM_SHOT_PARAM_TIMEOUT_MS 2000u
 
 typedef enum {
     SHOT_IDLE = 0,
@@ -41,15 +38,15 @@ static uint8_t     s_site       = 0u;
 static uint8_t     s_index      = 0u;
 static uint8_t     s_total      = 0u;
 
-/* 单调时钟毫秒 */
 static uint32_t Shot_MonoMs(void)
 {
     struct timespec ts;
+
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000));
+    return (uint32_t)((uint64_t)ts.tv_sec * 1000u +
+                      (uint64_t)(ts.tv_nsec / 1000000));
 }
 
-/* 关闭连接并回到空闲态 */
 static void Shot_Close(void)
 {
     if (s_fd >= 0)
@@ -60,62 +57,71 @@ static void Shot_Close(void)
     s_state = SHOT_IDLE;
 }
 
-/*
-* 函数介绍：初始化（丢弃残留状态）
-*	返回值：无
-*/
-void Camera_Shot_Init(void)
+static int Shot_Connect(void)
 {
-    Shot_Close();
-}
-
-/*
-* 函数介绍：发起一次拍照（非阻塞）
-*	参数：site 地点 参数：index 第几张(0起) 参数：total 总张数
-*	返回值：0 已发出；-1 失败
-*/
-int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
-{
-    if (s_state != SHOT_IDLE)
-    {
-        fprintf(stderr, "[CAM_SHOT] 上一次拍照还没结束，忽略本次请求\n");
-        return -1;
-    }
-
-    /* 1. 连接控制 socket（Python 端必须已启动，否则此处立即失败，不会阻塞） */
+    struct sockaddr_un addr;
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+
     if (fd < 0)
     {
         perror("[CAM_SHOT] 创建 socket 失败");
         return -1;
     }
 
-    struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     (void)snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", CAM_SHOT_SOCK_PATH);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
-        fprintf(stderr, "[CAM_SHOT] 连接 %s 失败：%s（Camera_tftp.py 未启动？）\n",
+        fprintf(stderr, "[CAM_SHOT] 连接 %s 失败：%s（Python 相机服务未启动？）\n",
                 CAM_SHOT_SOCK_PATH, strerror(errno));
         close(fd);
         return -1;
     }
 
-    /* 2. 发送拍照命令 */
-    const char *cmd = CAM_SHOT_CMD_CAPTURE;
-    size_t cmd_len  = strlen(cmd);
-    ssize_t n = send(fd, cmd, cmd_len, MSG_NOSIGNAL);
-    if (n != (ssize_t)cmd_len)
+    return fd;
+}
+
+void Camera_Shot_Init(void)
+{
+    Shot_Close();
+}
+
+int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
+{
+    char cmd[128];
+    int n;
+    int fd;
+    int flags;
+
+    if (s_state != SHOT_IDLE)
+    {
+        fprintf(stderr, "[CAM_SHOT] 上一次拍照还没结束，忽略本次请求\n");
+        return -1;
+    }
+
+    fd = Shot_Connect();
+    if (fd < 0)
+        return -1;
+
+    n = snprintf(cmd, sizeof(cmd), "%s %u %u %u\n",
+                 CAM_SHOT_CMD_CAPTURE, (unsigned)site,
+                 (unsigned)index, (unsigned)total);
+    if ((n <= 0) || ((size_t)n >= sizeof(cmd)))
+    {
+        close(fd);
+        return -1;
+    }
+
+    if (send(fd, cmd, (size_t)n, MSG_NOSIGNAL) != n)
     {
         fprintf(stderr, "[CAM_SHOT] 发送拍照命令失败：%s\n", strerror(errno));
         close(fd);
         return -1;
     }
 
-    /* 3. 转非阻塞，后续只在 Poll() 里查回包，避免卡住调度线程 */
-    int flags = fcntl(fd, F_GETFL, 0);
+    flags = fcntl(fd, F_GETFL, 0);
     if (flags >= 0)
         (void)fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
@@ -131,21 +137,51 @@ int Camera_Shot_Request(uint8_t site, uint8_t index, uint8_t total)
     return 0;
 }
 
-/*
-* 函数介绍：查询本次拍照结果（非阻塞）
-*	返回值：0 进行中；1 成功；-1 失败
-*/
+static int Shot_HandleSuccess(const char *filename)
+{
+    char path[512];
+
+    if ((filename == NULL) || (*filename == '\0'))
+    {
+        printf("[CAM_SHOT] 地点 %u 第 %u/%u 张完成（Python 未返回文件名）\n",
+               (unsigned)s_site, (unsigned)(s_index + 1u), (unsigned)s_total);
+        return 1;
+    }
+
+    snprintf(path, sizeof(path), "%s/%s", CAM_SHOT_FRAME_DIR, filename);
+    if (remove(path) == 0)
+    {
+        printf("[CAM_SHOT] 地点 %u 第 %u/%u 张完成：%s 已上传并删除本地文件\n",
+               (unsigned)s_site, (unsigned)(s_index + 1u),
+               (unsigned)s_total, filename);
+    }
+    else
+    {
+        fprintf(stderr, "[CAM_SHOT] 删除本地文件失败：%s（%s）\n",
+                path, strerror(errno));
+    }
+
+    return 1;
+}
+
 int Camera_Shot_Poll(void)
 {
+    struct pollfd pfd;
+    char buf[256];
+    char *line_end;
+    const char *filename = NULL;
+    ssize_t n;
+    int pr;
+    int ret = -1;
+
     if (s_state != SHOT_WAIT_REPLY)
         return 0;
 
-    struct pollfd pfd;
     pfd.fd      = s_fd;
     pfd.events  = POLLIN;
     pfd.revents = 0;
 
-    int pr = poll(&pfd, 1, 0);
+    pr = poll(&pfd, 1, 0);
     if (pr < 0)
     {
         if (errno == EINTR)
@@ -157,7 +193,6 @@ int Camera_Shot_Poll(void)
 
     if (pr == 0)
     {
-        /* 还没数据：检查超时 */
         if ((uint32_t)(Shot_MonoMs() - s_start_ms) >= CAM_SHOT_REPLY_TIMEOUT_MS)
         {
             fprintf(stderr, "[CAM_SHOT] 等待回包超时（%u ms）：地点 %u 第 %u/%u 张\n",
@@ -169,7 +204,6 @@ int Camera_Shot_Poll(void)
         return 0;
     }
 
-    /* 对端关闭/出错（没有 POLLIN），直接判失败 */
     if ((pfd.revents & POLLIN) == 0)
     {
         fprintf(stderr, "[CAM_SHOT] socket 异常（revents=0x%X），对端可能已退出\n",
@@ -178,9 +212,7 @@ int Camera_Shot_Poll(void)
         return -1;
     }
 
-    /* 数据已就绪，读回包（Python 一条 sendall，一次读完即可） */
-    char buf[256];
-    ssize_t n = recv(s_fd, buf, sizeof(buf) - 1u, 0);
+    n = recv(s_fd, buf, sizeof(buf) - 1u, 0);
     if (n <= 0)
     {
         fprintf(stderr, "[CAM_SHOT] 接收回包失败/对端关闭：%s\n", strerror(errno));
@@ -189,33 +221,28 @@ int Camera_Shot_Poll(void)
     }
     buf[n] = '\0';
 
-    /* 去掉行尾换行 */
-    char *nl = strchr(buf, '\n');
-    if (nl) *nl = '\0';
+    line_end = strpbrk(buf, "\r\n");
+    if (line_end != NULL)
+        *line_end = '\0';
 
-    int ret;
-    if (strncmp(buf, "img_", 4u) == 0)
+    if (strncmp(buf, "OK", 2u) == 0)
     {
-        /*
-         * Python 端是「先 TFTP 上传成功、再回报文件名」，
-         * 所以走到这里代表照片已经发出去了，清掉本地副本即可。
-         */
-        char path[512];
-        snprintf(path, sizeof(path), "%s/%s", CAM_SHOT_FRAME_DIR, buf);
-        if (remove(path) == 0)
-            printf("[CAM_SHOT] 地点 %u 第 %u/%u 张完成：%s 已上传并删除本地文件\n",
-                   (unsigned)s_site, (unsigned)(s_index + 1u),
-                   (unsigned)s_total, buf);
-        else
-            fprintf(stderr, "[CAM_SHOT] 删除本地文件失败：%s（%s）\n",
-                    path, strerror(errno));
-        ret = 1;
+        filename = buf + 2;
+        while (*filename == ' ')
+            filename++;
+        ret = Shot_HandleSuccess(filename);
     }
-    else if (strcmp(buf, "ERROR") == 0)
+    else if (strncmp(buf, "img_", 4u) == 0)
     {
-        fprintf(stderr, "[CAM_SHOT] Python 回报 ERROR：地点 %u 第 %u/%u 张"
-                        "（拍照失败或 TFTP 上传失败，本地文件已保留）\n",
-                (unsigned)s_site, (unsigned)(s_index + 1u), (unsigned)s_total);
+        /* 兼容旧版 Python 回包：img_xxx.jpg */
+        ret = Shot_HandleSuccess(buf);
+    }
+    else if (strncmp(buf, "ERROR", 5u) == 0)
+    {
+        fprintf(stderr, "[CAM_SHOT] Python 回报错误：地点 %u 第 %u/%u 张"
+                        "（拍照或 TFTP 上传失败，本地文件已保留）：%s\n",
+                (unsigned)s_site, (unsigned)(s_index + 1u),
+                (unsigned)s_total, buf);
         ret = -1;
     }
     else
@@ -228,7 +255,79 @@ int Camera_Shot_Poll(void)
     return ret;
 }
 
-/* 是否还有一次拍照没结束 */
+int Camera_Shot_ApplyParam(const char *key, uint32_t value)
+{
+    struct pollfd pfd;
+    char cmd[128];
+    char buf[128];
+    ssize_t n;
+    int fd;
+    int pr;
+    int len;
+
+    if ((key == NULL) || (*key == '\0'))
+        return -1;
+
+    fd = Shot_Connect();
+    if (fd < 0)
+        return -1;
+
+    len = snprintf(cmd, sizeof(cmd), "%s %s %u\n",
+                   CAM_SHOT_CMD_PARAM, key, (unsigned)value);
+    if ((len <= 0) || ((size_t)len >= sizeof(cmd)))
+    {
+        close(fd);
+        return -1;
+    }
+
+    if (send(fd, cmd, (size_t)len, MSG_NOSIGNAL) != len)
+    {
+        fprintf(stderr, "[CAM_PARAM] 发送参数命令失败：%s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    pfd.fd      = fd;
+    pfd.events  = POLLIN;
+    pfd.revents = 0;
+
+    pr = poll(&pfd, 1, (int)CAM_SHOT_PARAM_TIMEOUT_MS);
+    if (pr <= 0)
+    {
+        fprintf(stderr, "[CAM_PARAM] 等待 Python 回包%s：%s=%u\n",
+                (pr == 0) ? "超时" : "失败", key, (unsigned)value);
+        close(fd);
+        return -1;
+    }
+
+    n = recv(fd, buf, sizeof(buf) - 1u, 0);
+    if (n <= 0)
+    {
+        fprintf(stderr, "[CAM_PARAM] 接收回包失败：%s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+    buf[n] = '\0';
+
+    {
+        char *line_end = strpbrk(buf, "\r\n");
+        if (line_end != NULL)
+            *line_end = '\0';
+    }
+
+    close(fd);
+
+    if (strncmp(buf, "OK", 2u) == 0)
+    {
+        printf("[CAM_PARAM] Python 已确认：%s=%u\n", key, (unsigned)value);
+        return 0;
+    }
+
+    fprintf(stderr, "[CAM_PARAM] Python 返回错误：%s=%u，%s\n",
+            key, (unsigned)value, buf);
+    return -1;
+}
+
 uint8_t Camera_Shot_IsBusy(void)
 {
     return (s_state == SHOT_WAIT_REPLY) ? 1u : 0u;

@@ -2,15 +2,11 @@
 #define _POSIX_C_SOURCE 199309L
 
 #include "Camera_Ctrl_Cmd.h"
+#include "Camera_Shot.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
-#include <linux/videodev2.h>
 
 #define CAM_CMD_FETCH_RETRY    8u
 #define CAM_ORBIT_FRESH_MS     2000u  /* 经纬度超过 2 s 未更新视为失效 */
@@ -18,23 +14,13 @@
 
 /* ---------------- 参数表 ---------------- */
 const CameraParamInfo_t g_cam_param_table[CAM_PARAM_NUM] = {
-    { CAM_PARAM_BRIGHTNESS,   0u, 200u, "亮度"   },
-    { CAM_PARAM_CONTRAST,     0u, 200u, "对比度" },
-    { CAM_PARAM_SATURATION,   0u, 200u, "饱和度" },
-    { CAM_PARAM_HUE,          0u, 360u, "色调"   },
-    { CAM_PARAM_GAMMA,        0u, 100u, "伽马"   },
-    { CAM_PARAM_GAIN,         0u,  40u, "增益"   },
-    { CAM_PARAM_SHARPNESS,    0u,  32u, "锐度"   },
-};
-
-static const uint32_t s_v4l2_cid[CAM_PARAM_NUM] = {
-    V4L2_CID_BRIGHTNESS,
-    V4L2_CID_CONTRAST,
-    V4L2_CID_SATURATION,
-    V4L2_CID_HUE,
-    V4L2_CID_GAMMA,
-    V4L2_CID_GAIN,
-    V4L2_CID_SHARPNESS,
+    { CAM_PARAM_BRIGHTNESS,   0u, 200u, "亮度",   "brightness" },
+    { CAM_PARAM_CONTRAST,     0u, 200u, "对比度", "contrast"   },
+    { CAM_PARAM_SATURATION,   0u, 200u, "饱和度", "saturation" },
+    { CAM_PARAM_HUE,          0u, 360u, "色调",   "hue"        },
+    { CAM_PARAM_GAMMA,        0u, 100u, "伽马",   "gamma"      },
+    { CAM_PARAM_GAIN,         0u,  40u, "增益",   "gain"       },
+    { CAM_PARAM_SHARPNESS,    0u,  32u, "锐度",   "sharpness"  },
 };
 
 /* ---------------- 命令缓存 ---------------- */
@@ -297,16 +283,7 @@ void Camera_CtrlCmd_OnCanFrame(uint32_t can_id, uint8_t frame_type,
 
 int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
 {
-    const char *dev;
     const CameraParamInfo_t *info;
-    struct v4l2_queryctrl qctrl;
-    struct v4l2_control ctrl;
-    int64_t pmin;
-    int64_t pmax;
-    int64_t qmin;
-    int64_t qmax;
-    int64_t value;
-    int fd;
 
     if (cmd == NULL)
         return -1;
@@ -321,69 +298,9 @@ int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd)
         return -1;
     }
 
-    dev = getenv("CAM_VIDEO_DEV");
-    if ((dev == NULL) || (*dev == '\0'))
-        dev = "/dev/video0";
-
-    fd = open(dev, O_RDWR);
-    if (fd < 0)
-    {
-        perror("[CAM_PARAM] 打开相机设备失败");
-        return -1;
-    }
-
-    memset(&qctrl, 0, sizeof(qctrl));
-    qctrl.id = s_v4l2_cid[cmd->param_type];
-
-    if (ioctl(fd, VIDIOC_QUERYCTRL, &qctrl) < 0)
-    {
-        fprintf(stderr, "[CAM_PARAM] %s：查询控件 %s 失败\n",
-                dev, g_cam_param_table[cmd->param_type].name);
-        close(fd);
-        return -1;
-    }
-
-    if ((qctrl.flags & V4L2_CTRL_FLAG_DISABLED) != 0u)
-    {
-        fprintf(stderr, "[CAM_PARAM] %s：控件 %s 已禁用\n",
-                dev, g_cam_param_table[cmd->param_type].name);
-        close(fd);
-        return -1;
-    }
-
     info = &g_cam_param_table[cmd->param_type];
-    pmin = (int64_t)info->min;
-    pmax = (int64_t)info->max;
-    qmin = (int64_t)qctrl.minimum;
-    qmax = (int64_t)qctrl.maximum;
+    printf("[CAM_PARAM] 下发参数：%s=%u\n",
+           info->name, (unsigned)cmd->param_value);
 
-    if ((pmax <= pmin) || (qmax <= qmin))
-    {
-        close(fd);
-        return -1;
-    }
-
-    value = qmin + (((int64_t)cmd->param_value - pmin) * (qmax - qmin))
-                   / (pmax - pmin);
-    if (value < qmin)
-        value = qmin;
-    if (value > qmax)
-        value = qmax;
-
-    memset(&ctrl, 0, sizeof(ctrl));
-    ctrl.id    = qctrl.id;
-    ctrl.value = (int32_t)value;
-
-    if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) < 0)
-    {
-        perror("[CAM_PARAM] 设置控件失败");
-        close(fd);
-        return -1;
-    }
-
-    printf("[CAM_PARAM] %s：%s %u -> %d\n",
-           dev, info->name, (unsigned)cmd->param_value, ctrl.value);
-
-    close(fd);
-    return 0;
+    return Camera_Shot_ApplyParam(info->key, cmd->param_value);
 }

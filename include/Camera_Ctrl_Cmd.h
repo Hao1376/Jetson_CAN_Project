@@ -24,6 +24,8 @@
  * 广播帧（FRAME_TYPE_BROADCAST，8 字节）
  *   0x22 经纬度：byte1 = 0x01 经度 / 0x02 纬度，byte2~5 = float32 小端，
  *               byte6 = 有效位；收到后由 Camera_CtrlCmd_GetOrbit() 统一读取。
+ *
+ * 参数下发不直接打开相机设备，而是通过 Camera_Shot 转发给 Python 相机服务。
  */
 
 #define CAM_CMD_LEN             8u
@@ -58,7 +60,8 @@ typedef struct
     uint8_t  type;
     uint32_t min;
     uint32_t max;
-    const char *name;
+    const char *name;   /* 中文名，用于日志 */
+    const char *key;    /* 协议键名，发给 Python 相机服务 */
 } CameraParamInfo_t;
 
 extern const CameraParamInfo_t g_cam_param_table[CAM_PARAM_NUM];
@@ -90,7 +93,7 @@ uint8_t Camera_CtrlCmd_Fetch(Camera_CtrlCmd_t *out, uint32_t *seq_out);
 /* 读取当前有效经纬度；新鲜度/配对检查不通过时返回 0 */
 uint8_t Camera_CtrlCmd_GetOrbit(float *lat, float *lon);
 
-/* 把命令中的参数下发到相机（V4L2） */
+/* 把命令中的参数交给 Python 相机服务下发 */
 int Camera_CtrlCmd_ApplyParam(const Camera_CtrlCmd_t *cmd);
 
 /* CAN 上层统一入口，按 frame_type 分发命令帧/广播帧 */
